@@ -22,6 +22,10 @@ enum Cmd {
     PostSolution { id: u32 },
     #[structopt(name = "retrieve-pose-info")]
     RetrievePoseInfo { problem_id: u32, pose_id: String },
+    #[structopt(name = "visualize")]
+    Visualize { problem_id: u32 },
+    #[structopt(name = "visualize-solution")]
+    VisualizeSolution { problem_id: u32 },
 }
 
 fn main() -> Result<()> {
@@ -47,6 +51,12 @@ fn main() -> Result<()> {
         } => {
             let pose_info = icfp2021::api::retrieve_pose_info(problem_id, pose_id)?;
             println!("pose_info: {}", pose_info);
+        }
+        Cmd::Visualize { problem_id } => {
+            icfp2021::solver::visualize(problem_id)?;
+        }
+        Cmd::VisualizeSolution { problem_id } => {
+            icfp2021::solver::visualize_solution(problem_id)?;
         }
     }
     Ok(())

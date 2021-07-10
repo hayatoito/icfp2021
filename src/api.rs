@@ -3,9 +3,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 fn api_token() -> Result<String> {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("task/api-token");
-    Ok(std::fs::read_to_string(path)?.trim().to_string())
+    Ok(read_from_task_dir("api-token")?.trim().to_string())
 }
 
 fn get(path: &str) -> Result<String> {
@@ -61,12 +59,8 @@ pub fn problem(id: u32) -> Result<String> {
     get(&format!("/api/problems/{}", id))
 }
 
-// type Poseid = i64;
-
 fn read_solution(id: u32) -> Result<String> {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push(&format!("task/solution/{}.json", id));
-    Ok(std::fs::read_to_string(path)?)
+    read_from_task_dir(&format!("solution/{}.json", id))
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -81,35 +75,27 @@ pub fn post_solution(problem_id: u32) -> Result<String> {
     )?;
     info!("pose_id_response: {}", pose_id_response);
 
-    // retrieve pose info
     let PoseIdResponse { id: pose_id } = serde_json::from_str(&pose_id_response)?;
 
     retrieve_pose_info(problem_id, pose_id)
 }
 
 pub fn retrieve_pose_info(problem_id: u32, pose_id: String) -> Result<String> {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push(&format!("task/pose-info/{}-{}.json", problem_id, pose_id));
-
     let pose_info = get(&format!(
         "/api/problems/{}/solutions/{}",
         problem_id, pose_id
     ))?;
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push(&format!(
-        "task/pose-info/problem-{}_pose-{}.json",
-        problem_id, pose_id
-    ));
-    std::fs::write(path, &pose_info)?;
+    write_to_task_dir(
+        &format!("pose-info/problem-{}_pose-{}.json", problem_id, pose_id),
+        &pose_info,
+    )?;
     Ok(pose_info)
 }
 
 pub fn download_problems(from: u32, inclusive_to: u32) -> Result<()> {
     for id in from..=inclusive_to {
-        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        path.push(&format!("task/problem/{}.json", id));
         let response = get(&format!("/api/problems/{}", id))?;
-        std::fs::write(path, response)?;
+        write_to_task_dir(&format!("problem/{}.json", id), &response)?;
     }
     Ok(())
 }

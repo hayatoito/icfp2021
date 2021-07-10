@@ -25,16 +25,20 @@ run() {
 }
 
 # * task
+hello() {
+  cargo run -- hello
+}
+
 download_problem() {
   # [2021-07-10 Sat]
   mkdir -p ./task/problem
-  cargo run --release -- download-problem 1 78
+  cargo run -- download-problem 1 78
 }
 
 post_solution() {
   # [2021-07-10 Sat]
   mkdir -p ./task/solution
-  cargo run --release -- post-solution 1
+  cargo run -- post-solution 1
 
   # [2021-07-10 Sat]
   # pose_id: {"id":"78841682-a4ac-4b5b-92e1-2d6b37f855eb"}
@@ -44,7 +48,15 @@ post_solution() {
 retrive_pose_info() {
   # [2021-07-10 Sat]
   mkdir -p ./task/solution
-  cargo run --release -- retrieve-pose-info 1 78841682-a4ac-4b5b-92e1-2d6b37f855eb
+  cargo run -- retrieve-pose-info 1 78841682-a4ac-4b5b-92e1-2d6b37f855eb
+}
+
+visualize_problem() {
+  cargo run -- visualize 1
+}
+
+visualize_solution() {
+  cargo run -- visualize-solution 1
 }
 
 # interact() {

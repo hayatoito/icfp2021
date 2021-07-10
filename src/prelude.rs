@@ -6,24 +6,18 @@ pub use std::collections::{HashMap, HashSet, VecDeque};
 pub use std::path::{Path, PathBuf};
 pub use std::rc::Rc;
 
-type Cord = i64;
-type Point = (Cord, Cord);
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Problem {
-    hole: Vec<Point>,
-    figures: Figures,
-    epsilon: u32,
+pub fn read_from_task_dir(task_relative_path: impl AsRef<Path>) -> Result<String> {
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("task");
+    path.push(task_relative_path);
+    Ok(std::fs::read_to_string(path)?)
 }
 
-// index in vertices.
-type IndexInVerticles = u32;
-type Edge = (IndexInVerticles, IndexInVerticles);
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Figures {
-    edges: Vec<Edge>,
-    vertices: Vec<Point>,
+pub fn write_to_task_dir(task_relative_path: impl AsRef<Path>, content: &str) -> Result<()> {
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("task");
+    path.push(task_relative_path);
+    Ok(std::fs::write(path, content)?)
 }
 
 #[cfg(test)]
