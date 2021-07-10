@@ -1,38 +1,34 @@
-use reqwest::StatusCode;
+use structopt::StructOpt;
 
 type Result<T> = anyhow::Result<T>;
 
-// https://icfpc2020-api.testkontur.ru/swagger/index.html
+#[derive(StructOpt, Debug)]
+struct Cli {
+    // #[structopt(short = "v", parse(from_occurrences))]
+    // verbose: u64,
+    #[structopt(subcommand)]
+    cmd: Cmd,
+}
 
-fn first_post(server_url: &str, player_key: &str) -> Result<()> {
-    let client = reqwest::blocking::Client::new();
-    let response = client
-        .post(server_url)
-        .body(player_key.to_string())
-        .send()?;
-    match response.status() {
-        StatusCode::OK => {
-            println!("{}", response.text()?);
-        }
-        _ => {
-            println!("Unexpected server response:");
-            println!("HTTP code: {}", response.status());
-            println!("{}", response.text()?);
-        }
-    }
-    Ok(())
+#[derive(StructOpt, Debug)]
+enum Cmd {
+    #[structopt(name = "hello")]
+    Hello,
+    #[structopt(name = "sub1")]
+    Sub2 { a: String },
 }
 
 fn main() -> Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-
-    assert!(args.len() >= 3);
-
-    let server_url = &args[1];
-    let player_key = &args[2];
-
-    println!("ServerUrl: {}; PlayerKey: {}", server_url, player_key);
-
-    first_post(server_url, player_key)?;
+    env_logger::init();
+    let args = Cli::from_args();
+    match args.cmd {
+        Cmd::Hello => {
+            let response = icfp2021::api::hello()?;
+            println!("response {}", response);
+        }
+        Cmd::Sub2 { a } => {
+            println!("cmd1: {}", a);
+        }
+    }
     Ok(())
 }
