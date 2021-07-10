@@ -1,6 +1,8 @@
 use crate::prelude::*;
 
 use chrono::prelude::*;
+use rand::Rng;
+use rand::RngCore;
 use std::io::Write;
 
 mod plot {
@@ -246,10 +248,17 @@ pub fn visualize_solution(problem_id: u32) -> Result<()> {
     plot::plot(&traces)
 }
 
+struct Move {
+    v_index: usize,
+    current_point: Point,
+    next_point: Point,
+}
+
 struct Solver {
     problem: Problem,
     vertices: Vec<Point>,
     figure_edge_length: Vec<Distance>,
+    rng: Box<dyn RngCore>,
 }
 
 impl Solver {
@@ -262,6 +271,7 @@ impl Solver {
             problem,
             vertices,
             figure_edge_length,
+            rng: Box::new(rand::thread_rng()),
         })
     }
 
@@ -318,6 +328,168 @@ impl Solver {
     fn check_constraint(&self) -> bool {
         self.pose_edge_length_ok() && self.pose_points_in_hole() && !self.pose_interect_hole()
     }
+
+    fn score(&self, pose: &Pose) -> Score {
+        self.constrait_score(pose) + self.problem.dislike(pose)
+    }
+
+    fn constrait_score(&self, pose: &Pose) -> Score {
+        self.number_of_invalid_edge_intersect(pose) as u64 * 1_000_000
+            + self.number_of_invalid_points(pose) as u64 * 1_000_000
+            + self.invalid_edge_length_score(pose) * 100
+    }
+
+    fn number_of_invalid_points(&self, pose: &[Point]) -> usize {
+        pose.iter()
+            .filter(|p| !is_inside(&self.problem.hole, **p))
+            .count()
+    }
+
+    fn number_of_invalid_edge_intersect(&self, pose: &[Point]) -> usize {
+        let mut count = 0;
+        for edge in &self.problem.figure.edges {
+            // pose segment
+            let p0 = pose[edge.0];
+            let p1 = pose[edge.1];
+
+            for j in 0..self.problem.hole.len() {
+                // hole segment
+                let h0 = self.problem.hole[j];
+                let h1 = self.problem.hole[(j + 1) % self.problem.hole.len()];
+
+                match (p0, p1).intersect(&(h0, h1)) {
+                    IntersectResult::Intersect => {
+                        // count multiple times for every intersections....
+                        count += 1;
+                        // TODO: break here?
+                    }
+                    IntersectResult::PointOnSegment => {}
+                    IntersectResult::None => {}
+                }
+            }
+        }
+        count
+    }
+
+    fn invalid_edge_length_score(&self, pose: &[Point]) -> u64 {
+        let mut score = 0;
+        for (i, edge) in self.problem.figure.edges.iter().enumerate() {
+            let p0 = pose[edge.0];
+            let p1 = pose[edge.1];
+
+            let d1 = p0.squared_distance(&p1); // new
+            let d2 = self.figure_edge_length[i]; // original
+
+            // | (d1/d2) - 1 | <= e / 1_000_000;
+            // 1_000_000 * | d1 - d2| <= d2 * e
+
+            let left = 1_000_000 * (if d1 > d2 { d1 - d2 } else { d2 - d1 });
+            let right = d2 * self.problem.epsilon;
+            if left > right {
+                score += left - right;
+            }
+        }
+        score
+    }
+
+    fn dislike(&self) -> Score {
+        self.problem.dislike(&self.vertices)
+    }
+
+    fn next_move(&mut self) -> Move {
+        let n = self.vertices.len();
+        let v_index = self.rng.gen_range(0..n);
+        let p = self.vertices[v_index];
+        let next_point = match self.rng.gen_range(0..4) {
+            0 => (p.0 + 1, p.1),
+            1 => (p.0 - 1, p.1),
+            2 => (p.0, p.1 - 1),
+            3 => (p.0, p.1 + 1),
+            _ => unreachable!(),
+        };
+        Move {
+            v_index,
+            current_point: p,
+            next_point,
+        }
+    }
+
+    fn solve(&mut self) {
+        // let mut route = (0..n).collect::<Route>();
+        let mut iteration = 0;
+        // let mut temperature = 100000.0;
+        // let cooling_rate = 0.9999999;
+        // let absolute_temperature = 0.000001;
+
+        let mut temperature = 1_000_000.0;
+        let cooling_rate = 0.99999;
+        let absolute_temperature = 0.001;
+
+        let mut current_score = self.score(&self.vertices);
+
+        while temperature > absolute_temperature {
+            // if iteration % 1_000_000 == 0 {
+            if iteration % 100_000 == 0 {
+                info!(
+                    "iteration: {}, temperature: {:10.8}, score: {}, dislike: {}",
+                    iteration,
+                    temperature,
+                    current_score,
+                    self.dislike()
+                );
+            }
+            let Move {
+                v_index,
+                current_point,
+                next_point,
+            } = self.next_move();
+
+            self.vertices[v_index] = next_point;
+
+            let next_score = self.score(&self.vertices);
+
+            let delta = (next_score as f64) - (current_score as f64);
+
+            if delta < 0.0 || (-delta / temperature).exp() > self.rng.gen::<f64>() {
+                current_score = next_score;
+            } else {
+                // revert to the previous state
+                self.vertices[v_index] = current_point;
+            }
+            temperature *= cooling_rate;
+            iteration += 1;
+        }
+        println!("score: {}", self.score(&self.vertices));
+    }
+
+    fn visualize(&self) -> Result<()> {
+        let mut traces = Vec::new();
+
+        // Plot hole.
+        let hole_plot = self.problem.hole.to_plot();
+        traces.push(hole_plot);
+
+        // // Plot figure.
+        // let edges = self.problem.figure_to_pose(&self.problem.figure.vertices);
+        // for e in edges {
+        //     traces.push(e.to_plot());
+        // }
+
+        // Plot pose (solution)
+        let edges = self.problem.figure_to_pose(&self.vertices);
+        for e in edges {
+            traces.push(e.to_plot());
+        }
+
+        plot::plot(&traces)
+    }
+}
+
+pub fn solve(problem_id: u32) -> Result<()> {
+    let mut solver = Solver::new(problem_id)?;
+    solver.solve();
+    solver.visualize()?;
+    Ok(())
 }
 
 // Geometry
@@ -377,42 +549,39 @@ impl Intersect for Segment {
 
         // println!("{} != {}, {} != {}", o1, o2, o3, o4);
 
+        let on_boundary = || {
+            // Special Cases
+            // p1, q1 and p2 are colinear and p2 lies on segment p1q1
+            if o1 == 0 && on_segment(p1, p2, q1) {
+                return true;
+            }
+
+            // p1, q1 and q2 are colinear and q2 lies on segment p1q1
+            if o2 == 0 && on_segment(p1, q2, q1) {
+                return true;
+            }
+
+            // p2, q2 and p1 are colinear and p1 lies on segment p2q2
+            if o3 == 0 && on_segment(p2, p1, q2) {
+                return true;
+            }
+
+            // p2, q2 and q1 are colinear and q1 lies on segment p2q2
+            if o4 == 0 && on_segment(p2, q1, q2) {
+                return true;
+            }
+
+            false
+        };
+
         // General case
         if o1 != o2 && o3 != o4 {
-            if o1 == 0 && on_segment(p1, p2, q1) {
+            if on_boundary() {
                 return IntersectResult::PointOnSegment;
             }
-            if o2 == 0 && on_segment(p1, q2, q1) {
-                return IntersectResult::PointOnSegment;
-            }
-            if o3 == 0 && on_segment(p2, p1, q2) {
-                return IntersectResult::PointOnSegment;
-            }
-            if o4 == 0 && on_segment(p2, q1, q2) {
-                return IntersectResult::PointOnSegment;
-            }
-
             return IntersectResult::Intersect;
         }
-
-        // Special Cases
-        // p1, q1 and p2 are colinear and p2 lies on segment p1q1
-        if o1 == 0 && on_segment(p1, p2, q1) {
-            return IntersectResult::PointOnSegment;
-        }
-
-        // p1, q1 and q2 are colinear and q2 lies on segment p1q1
-        if o2 == 0 && on_segment(p1, q2, q1) {
-            return IntersectResult::PointOnSegment;
-        }
-
-        // p2, q2 and p1 are colinear and p1 lies on segment p2q2
-        if o3 == 0 && on_segment(p2, p1, q2) {
-            return IntersectResult::PointOnSegment;
-        }
-
-        // p2, q2 and q1 are colinear and q1 lies on segment p2q2
-        if o4 == 0 && on_segment(p2, q1, q2) {
+        if on_boundary() {
             return IntersectResult::PointOnSegment;
         }
         return IntersectResult::None; // Doesn't fall in any of the above cases
@@ -446,12 +615,11 @@ fn is_inside(polygon: &[Point], p: Point) -> bool {
                 // then check if it lies on segment. If it lies, return true,
                 // otherwise false
                 if orientation(polygon[i], p, polygon[next]) == 0 {
-                    // warn!("p is on_segmetn?: {:?}", p);
-                    println!(
-                        "p is on_segment: {:?} on {:?}",
-                        p,
-                        (polygon[i], polygon[next])
-                    );
+                    // debug!(
+                    //     "p is on_segment: {:?} on {:?}",
+                    //     p,
+                    //     (polygon[i], polygon[next])
+                    // );
                     return on_segment(polygon[i], p, polygon[next]);
                 }
             }
@@ -460,14 +628,18 @@ fn is_inside(polygon: &[Point], p: Point) -> bool {
     }
 
     // Return true if count is odd, false otherwise
-    if count % 2 == 0 {
-        println!("p is outside of polygon: {:?}, count: {}", p, count);
-    }
+    // if count % 2 == 0 {
+    //     debug!("p is outside of polygon: {:?}, count: {}", p, count);
+    // }
     count % 2 == 1
 }
 
 #[cfg(test)]
 mod tests {
+
+    fn init_env_logger() {
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
 
     use super::*;
 
@@ -508,6 +680,8 @@ mod tests {
 
     #[test]
     fn solver_constraint() -> Result<()> {
+        init_env_logger();
+
         let mut solver = Solver::new(1)?;
         assert!(solver.pose_edge_length_ok());
         assert!(!solver.pose_points_in_hole());

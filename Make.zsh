@@ -59,6 +59,10 @@ visualize_solution() {
   cargo run -- visualize-solution 1
 }
 
+solve() {
+  RUST_LOG=info cargo run --release -- solve 1
+}
+
 # interact() {
 #   RUST_MIN_STACK=200000000 RUST_LOG=info cargo run --release --bin app -- -v interact
 # }
