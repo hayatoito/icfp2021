@@ -1,9 +1,11 @@
 use crate::prelude::*;
+use rayon::prelude::*;
 
 use chrono::prelude::*;
 use rand::Rng;
 use rand::RngCore;
 use std::io::Write;
+use std::ops::Deref;
 
 mod plot {
     use super::*;
@@ -335,14 +337,28 @@ impl Solver {
 
     fn constrait_score(&self, pose: &Pose) -> Score {
         self.number_of_invalid_edge_intersect(pose) as u64 * 1_000_000
-            + self.number_of_invalid_points(pose) as u64 * 1_000_000
+            + (self.invalid_points_score(pose) * 1_000_000_000.0) as u64
             + self.invalid_edge_length_score(pose) * 100
     }
 
-    fn number_of_invalid_points(&self, pose: &[Point]) -> usize {
-        pose.iter()
-            .filter(|p| !is_inside(&self.problem.hole, **p))
-            .count()
+    fn invalid_points_score(&self, pose: &[Point]) -> f64 {
+        let mut score = 0.0;
+        for p in pose {
+            if is_inside(&self.problem.hole, *p) {
+                continue;
+            }
+
+            let mut min_dist = f64::MAX;
+            // mini distance of point p to a hole segment.
+            let hole_len = self.problem.hole.len();
+            for i in 0..hole_len {
+                let next = (i + 1) % hole_len;
+                let hole_segment = (self.problem.hole[i], self.problem.hole[next]);
+                min_dist = min_dist.min(p.distance_to_segment(&&hole_segment));
+            }
+            score += min_dist;
+        }
+        score
     }
 
     fn number_of_invalid_edge_intersect(&self, pose: &[Point]) -> usize {
@@ -363,7 +379,14 @@ impl Solver {
                         count += 1;
                         // TODO: break here?
                     }
-                    IntersectResult::PointOnSegment => {}
+                    IntersectResult::PointOnSegment => {
+                        // check middle of edge is inside of polygon
+                        // TODO: pick more random points on (p0, p1)
+                        let middle = (p0.0 + p1.1 / 2, (p0.1 + p1.1) / 2);
+                        if !is_inside(&self.problem.hole, middle) {
+                            count += 1;
+                        }
+                    }
                     IntersectResult::None => {}
                 }
             }
@@ -400,13 +423,10 @@ impl Solver {
         let n = self.vertices.len();
         let v_index = self.rng.gen_range(0..n);
         let p = self.vertices[v_index];
-        let next_point = match self.rng.gen_range(0..4) {
-            0 => (p.0 + 1, p.1),
-            1 => (p.0 - 1, p.1),
-            2 => (p.0, p.1 - 1),
-            3 => (p.0, p.1 + 1),
-            _ => unreachable!(),
-        };
+        let next_point = (
+            p.0 + self.rng.gen_range(-5..5),
+            p.1 + self.rng.gen_range(-5..5),
+        );
         Move {
             v_index,
             current_point: p,
@@ -423,20 +443,26 @@ impl Solver {
 
         let mut temperature = 1_000_000.0;
         let cooling_rate = 0.99999;
-        let absolute_temperature = 0.001;
+        let absolute_temperature = 0.00001;
 
         let mut current_score = self.score(&self.vertices);
 
         while temperature > absolute_temperature {
             // if iteration % 1_000_000 == 0 {
             if iteration % 100_000 == 0 {
-                info!(
-                    "iteration: {}, temperature: {:10.8}, score: {}, dislike: {}",
+                debug!(
+                    "iteration: {}, temperature: {:10.8}, score: {}, e-inter: {}, p-in-hole: {}, e-len: {},  dislike: {}",
                     iteration,
                     temperature,
                     current_score,
+                    self.number_of_invalid_edge_intersect(&self.vertices) as u64 * 1_000_000,
+                    self.invalid_points_score(&self.vertices) * 1_000_000_000.0,
+                    self.invalid_edge_length_score(&self.vertices) * 100,
                     self.dislike()
                 );
+                if log::log_enabled!(log::Level::Debug) {
+                    self.visualize().unwrap();
+                }
             }
             let Move {
                 v_index,
@@ -469,12 +495,6 @@ impl Solver {
         let hole_plot = self.problem.hole.to_plot();
         traces.push(hole_plot);
 
-        // // Plot figure.
-        // let edges = self.problem.figure_to_pose(&self.problem.figure.vertices);
-        // for e in edges {
-        //     traces.push(e.to_plot());
-        // }
-
         // Plot pose (solution)
         let edges = self.problem.figure_to_pose(&self.vertices);
         for e in edges {
@@ -483,12 +503,49 @@ impl Solver {
 
         plot::plot(&traces)
     }
+
+    fn write_solution(&self, problem_id: u32) -> Result<()> {
+        let solution = Solution {
+            vertices: self.vertices.clone(),
+        };
+        write_to_task_dir(
+            &format!("solution/{}.json", problem_id),
+            &serde_json::to_string(&solution)?,
+        )
+    }
 }
 
 pub fn solve(problem_id: u32) -> Result<()> {
     let mut solver = Solver::new(problem_id)?;
     solver.solve();
+
+    println!("constraint?: {}", solver.check_constraint());
     solver.visualize()?;
+    solver.write_solution(problem_id)?;
+
+    Ok(())
+}
+
+pub fn solve_all() -> Result<()> {
+    let problems = (1..=78).collect::<Vec<u32>>();
+
+    let results = problems
+        .par_iter()
+        .map(|id| {
+            match solve(*id) {
+                Ok(_) => {
+                    if let Ok(s) = crate::api::post_solution(*id) {
+                        println!("result: problem_id: {}, {}", id, s);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("error: problem_id: {}, {:?}", id, e);
+                }
+            }
+            1
+        })
+        .collect::<Vec<u32>>();
+    println!("results: {:?}", results);
     Ok(())
 }
 
@@ -632,6 +689,112 @@ fn is_inside(polygon: &[Point], p: Point) -> bool {
     //     debug!("p is outside of polygon: {:?}, count: {}", p, count);
     // }
     count % 2 == 1
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone, Copy, Default)]
+struct P(Point);
+
+impl P {
+    fn x(&self) -> i64 {
+        self.0 .0
+    }
+    fn y(&self) -> i64 {
+        self.0 .1
+    }
+
+    fn dot(&self, rhs: &P) -> i64 {
+        self.x() * rhs.x() + self.y() * rhs.y()
+    }
+}
+
+impl Deref for P {
+    type Target = Point;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::Add for P {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        P((self.x() + rhs.x(), self.y() + rhs.y()))
+    }
+}
+
+impl std::ops::Sub for P {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        P((self.x() - rhs.x(), self.y() - rhs.y()))
+    }
+}
+
+trait DistanceToSegment {
+    fn distance_to_segment(&self, segment: &Segment) -> f64;
+}
+
+impl DistanceToSegment for Point {
+    // https://www.geeksforgeeks.org/minimum-distance-from-a-point-to-the-line-segment-using-vectors/
+    fn distance_to_segment(&self, segment: &Segment) -> f64 {
+        // // Function to return the minimum distance
+        // // between a line segment AB and a point E
+        // double minDistance(Point A, Point B, Point E)
+        // {
+
+        let e = P(*self);
+        let a = P(segment.0);
+        let b = P(segment.1);
+
+        let ab = b - a;
+        let be = e - b;
+        let ae = e - a;
+
+        // Variables to store dot product
+        // double AB_BE, AB_AE;
+
+        // // Calculating the dot product
+        // AB_BE = (AB.F * BE.F + AB.S * BE.S);
+        //     AB_AE = (AB.F * AE.F + AB.S * AE.S);
+
+        let ab_be = ab.dot(&be);
+        let ab_ae = ab.dot(&ae);
+
+        // Minimum distance from
+        // point E to the line segment
+
+        if ab_be > 0 {
+            // Case 1
+            // Finding the magnitude
+            // double y = E.S - B.S;
+            // double x = E.F - B.F;
+            // reqAns = sqrt(x * x + y * y);
+            (e.squared_distance(&b) as f64).sqrt()
+        } else if ab_ae < 0 {
+            // Case 2
+            // double y = E.S - A.S;
+            // double x = E.F - A.F;
+            // reqAns = sqrt(x * x + y * y);
+            (e.squared_distance(&a) as f64).sqrt()
+        } else {
+            // Case 3
+            // Finding the perpendicular distance
+            // double x1 = AB.F;
+            // double y1 = AB.S;
+            // double x2 = AE.F;
+            // double y2 = AE.S;
+            // double mod = sqrt(x1 * x1 + y1 * y1);
+            // reqAns = abs(x1 * y2 - y1 * x2) / mod;
+
+            let x1 = ab.x();
+            let y1 = ab.y();
+            let x2 = ae.x();
+            let y2 = ae.y();
+            let m = ((x1 * x1 + y1 * y1) as f64).sqrt();
+            (x1 * y2 - y1 * x2).abs() as f64 / m
+        }
+    }
 }
 
 #[cfg(test)]

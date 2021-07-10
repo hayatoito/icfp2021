@@ -60,7 +60,12 @@ visualize_solution() {
 }
 
 solve() {
-  RUST_LOG=info cargo run --release -- solve 1
+  local id=${1:-1}
+  RUST_LOG=info cargo run --release -- solve ${id}
+}
+
+solve_all() {
+  RUST_LOG=info cargo run --release -- solve-all
 }
 
 # interact() {

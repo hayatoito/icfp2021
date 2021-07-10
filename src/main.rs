@@ -28,6 +28,8 @@ enum Cmd {
     VisualizeSolution { problem_id: u32 },
     #[structopt(name = "solve")]
     Solve { problem_id: u32 },
+    #[structopt(name = "solve-all")]
+    SolveAll,
 }
 
 fn main() -> Result<()> {
@@ -62,6 +64,9 @@ fn main() -> Result<()> {
         }
         Cmd::Solve { problem_id } => {
             icfp2021::solver::solve(problem_id)?;
+        }
+        Cmd::SolveAll => {
+            icfp2021::solver::solve_all()?;
         }
     }
     Ok(())
