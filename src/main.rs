@@ -18,18 +18,27 @@ enum Cmd {
     Problem { id: u32 },
     #[structopt(name = "download-problem")]
     DownloadProblem { from: u32, inclusive_to: u32 },
-    #[structopt(name = "post-solution")]
-    PostSolution { id: u32 },
-    #[structopt(name = "retrieve-pose-info")]
-    RetrievePoseInfo { problem_id: u32, pose_id: String },
+    // #[structopt(name = "post-solution")]
+    // PostSolution { id: u32 },
+    // #[structopt(name = "retrieve-pose-info")]
+    // RetrievePoseInfo { problem_id: u32, pose_id: String },
+    #[structopt(name = "update-pending")]
+    UpdatePending,
     #[structopt(name = "visualize")]
-    Visualize { problem_id: u32 },
-    #[structopt(name = "visualize-solution")]
-    VisualizeSolution { problem_id: u32 },
+    VisualizeProblem { problem_id: u32 },
+    // #[structopt(name = "visualize-solution")]
+    // VisualizeSolution { problem_id: u32 },
     #[structopt(name = "solve")]
     Solve { problem_id: u32 },
+    // #[structopt(name = "solve-with-manual-input")]
+    // SolveWithManualInput {
+    //     problem_id: u32,
+    //     solution_path: String,
+    // },
+    #[structopt(name = "solve-and-submit")]
+    SolveAndSubmit { problem_id: u32 },
     #[structopt(name = "solve-all")]
-    SolveAll,
+    SolveAll { start: u32, end: u32 },
 }
 
 fn main() -> Result<()> {
@@ -45,28 +54,40 @@ fn main() -> Result<()> {
         Cmd::DownloadProblem { from, inclusive_to } => {
             icfp2021::api::download_problems(from, inclusive_to)?;
         }
-        Cmd::PostSolution { id } => {
-            let pose_id = icfp2021::api::post_solution(id)?;
-            println!("pose_id: {}", pose_id);
+        // Cmd::PostSolution { id } => {
+        //     let pose_id = icfp2021::api::post_solution(id)?;
+        //     println!("pose_id: {}", pose_id);
+        // }
+        // Cmd::RetrievePoseInfo {
+        //     problem_id,
+        //     pose_id,
+        // } => {
+        //     let pose_info = icfp2021::api::retrieve_pose_info(problem_id, pose_id)?;
+        //     println!("pose_info: {}", pose_info);
+        // }
+        Cmd::UpdatePending => {
+            icfp2021::submission::update_pending()?;
         }
-        Cmd::RetrievePoseInfo {
-            problem_id,
-            pose_id,
-        } => {
-            let pose_info = icfp2021::api::retrieve_pose_info(problem_id, pose_id)?;
-            println!("pose_info: {}", pose_info);
+        Cmd::VisualizeProblem { problem_id } => {
+            icfp2021::plot::visualize_problem(problem_id)?;
         }
-        Cmd::Visualize { problem_id } => {
-            icfp2021::solver::visualize(problem_id)?;
-        }
-        Cmd::VisualizeSolution { problem_id } => {
-            icfp2021::solver::visualize_solution(problem_id)?;
-        }
+        // Cmd::VisualizeSolution { problem_id } => {
+        //     icfp2021::plot::visualize_solution(problem_id)?;
+        // }
         Cmd::Solve { problem_id } => {
             icfp2021::solver::solve(problem_id)?;
         }
-        Cmd::SolveAll => {
-            icfp2021::solver::solve_all()?;
+        // Cmd::SolveWithManualInput {
+        //     problem_id,
+        //     solution_path,
+        // } => {
+        //     icfp2021::solver::solve_with_manual_input(problem_id, solution_path)?;
+        // }
+        Cmd::SolveAndSubmit { problem_id } => {
+            icfp2021::solver::solve_and_submit(problem_id)?;
+        }
+        Cmd::SolveAll { start, end } => {
+            icfp2021::solver::solve_all(start..end)?;
         }
     }
     Ok(())

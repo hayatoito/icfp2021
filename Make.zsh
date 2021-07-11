@@ -32,7 +32,9 @@ hello() {
 download_problem() {
   # [2021-07-10 Sat]
   mkdir -p ./task/problem
-  cargo run -- download-problem 1 78
+  # cargo run -- download-problem 1 78
+  # [2021-07-10 Sat]
+  cargo run -- download-problem 1 106
 }
 
 post_solution() {
@@ -52,20 +54,27 @@ retrive_pose_info() {
 }
 
 visualize_problem() {
-  cargo run -- visualize 1
+  cargo run -- visualize $1
 }
 
 visualize_solution() {
-  cargo run -- visualize-solution 1
+  cargo run -- visualize-solution $1
 }
 
 solve() {
-  local id=${1:-1}
-  RUST_LOG=info cargo run --release -- solve ${id}
+  RUST_LOG=debug cargo run --release -- solve $1
+}
+
+# solve_with_manual_input() {
+#   RUST_LOG=debug cargo run --release -- solve-with-manual-input $1 $2
+# }
+
+solve_and_submit() {
+  RUST_LOG=icfp2021=debug cargo run --release -- solve-and-submit $1
 }
 
 solve_all() {
-  RUST_LOG=info cargo run --release -- solve-all
+  RUST_LOG=info cargo run --release -- solve-all $1 $2
 }
 
 # interact() {

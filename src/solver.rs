@@ -1,254 +1,8 @@
 use crate::prelude::*;
-use rayon::prelude::*;
 
-use chrono::prelude::*;
-use rand::Rng;
-use rand::RngCore;
-use std::io::Write;
-use std::ops::Deref;
-
-mod plot {
-    use super::*;
-
-    fn unique_file_name() -> String {
-        let local: DateTime<Local> = Local::now();
-        local.format("%Y-%m-%d-%H%M%S-%f").to_string()
-    }
-
-    pub fn plot<T>(data: &T) -> Result<()>
-    where
-        T: Serialize,
-    {
-        let mut path = std::env::temp_dir();
-        path.push(&format!("plot-{}.html", unique_file_name()));
-        write_html(&path, data)?;
-        webbrowser::open(path.to_str().unwrap())?;
-        // Ok(path)
-        Ok(())
-    }
-
-    fn write_html<T: ?Sized>(path: impl AsRef<Path>, data: &T) -> Result<()>
-    where
-        T: Serialize,
-    {
-        let html = format!(
-            r###"
-<!DOCTYPE html>
-<head>
-  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-</head>
-<!-- <div id="myDiv" style="width:1280px;height:720px"></div> -->
-<div id="myDiv" style="width:800px;height:600px"></div>
-<script>
-const myDiv = document.getElementById('myDiv');
-Plotly.newPlot(myDiv, {});
-</script>
-    "###,
-            serde_json::to_string(&data).unwrap(),
-        );
-        let mut file = std::fs::File::create(path.as_ref())?;
-        file.write_all(html.as_bytes())?;
-        Ok(())
-    }
-}
-
-type Cord = i64;
-type Point = (Cord, Cord);
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Problem {
-    hole: Vec<Point>,
-    figure: Figure,
-    epsilon: u64,
-}
-
-trait ToPlot {
-    fn to_plot(&self) -> serde_json::Value;
-}
-
-impl ToPlot for Vec<Point> {
-    fn to_plot(&self) -> serde_json::Value {
-        let mut x = self.iter().map(|p| p.0).collect::<Vec<_>>();
-        let mut y = self.iter().map(|p| p.1).collect::<Vec<_>>();
-        x.push(self[0].0);
-        y.push(self[0].1);
-        serde_json::json!({
-            "x": x,
-            "y": y,
-            "type": "scatter",
-        })
-    }
-}
-
-impl ToPlot for (Point, Point) {
-    fn to_plot(&self) -> serde_json::Value {
-        serde_json::json!({
-            "x": [self.0.0, self.1.0],
-            "y": [self.0.1, self.1.1],
-            "type": "scatter",
-        })
-    }
-}
-
-type Score = u64;
-type Distance = u64;
-
-type Pose = Vec<Point>;
-
-trait SquaredDistance {
-    fn squared_distance(&self, other: &Self) -> Distance;
-}
-
-impl SquaredDistance for Point {
-    fn squared_distance(&self, other: &Self) -> Distance {
-        // TODO: might not fit in u64.
-        ((self.0 - other.0).pow(2) + (self.1 - other.1).pow(2)) as u64
-    }
-}
-
-impl Problem {
-    pub fn new(id: u32) -> Result<Problem> {
-        let json = read_from_task_dir(&format!("problem/{}.json", id))?;
-        Ok(serde_json::from_str(&json)?)
-    }
-
-    fn figure_to_pose(&self, vertices: &[Point]) -> Vec<(Point, Point)> {
-        let mut edges = Vec::new();
-        for i in 0..self.figure.edges.len() {
-            let start_index = self.figure.edges[i].0;
-            let end_index = self.figure.edges[i].1;
-            let start_point = vertices[start_index];
-            let end_point = vertices[end_index];
-            edges.push((start_point, end_point));
-        }
-        edges
-    }
-
-    fn visualize(&self) -> Result<()> {
-        let mut traces = Vec::new();
-
-        // Plot hole.
-        let hole_plot = self.hole.to_plot();
-        traces.push(hole_plot);
-
-        // Plot figure.
-        let edges = self.figure_to_pose(&self.figure.vertices);
-        for e in edges {
-            traces.push(e.to_plot());
-        }
-
-        plot::plot(&traces)
-    }
-
-    fn min_squared_distance(point_in_hole: Point, pose: &Pose) -> Distance {
-        assert!(!pose.is_empty());
-        pose.iter()
-            .map(|p| p.squared_distance(&point_in_hole))
-            .min()
-            .unwrap()
-    }
-
-    fn dislike(&self, pose: &Pose) -> Score {
-        self.hole
-            .iter()
-            .map(|p| Self::min_squared_distance(*p, pose))
-            .sum()
-    }
-
-    /*
-    fn pose_example(&self) -> Pose {
-        vec![
-            (21, 28),
-            (31, 28),
-            (31, 87),
-            (29, 41),
-            (44, 43),
-            (58, 70),
-            (38, 79),
-            (32, 31),
-            (36, 50),
-            (39, 40),
-            (66, 77),
-            (42, 29),
-            (46, 49),
-            (49, 38),
-            (39, 57),
-            (69, 66),
-            (41, 70),
-            (39, 60),
-            (42, 25),
-            (40, 35),
-        ]
-    }
-    */
-}
-
-// index in vertices.
-type IndexInVerticles = usize;
-type Edge = (IndexInVerticles, IndexInVerticles);
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Figure {
-    edges: Vec<Edge>,
-    vertices: Vec<Point>,
-}
-
-impl Figure {
-    fn edge_length(&self) -> Vec<Distance> {
-        self.edges
-            .iter()
-            .map(|e| {
-                let p0 = self.vertices[e.0];
-                let p1 = self.vertices[e.1];
-                p0.squared_distance(&p1)
-            })
-            .collect()
-    }
-}
-
-/// Solution
-// [[file:~/share/rust/icfp2021/task/solution/1.json::{]]
-#[derive(Serialize, Deserialize, Debug)]
-struct Solution {
-    vertices: Vec<Point>,
-}
-
-impl Solution {
-    fn read_existing_solution(id: u32) -> Result<Solution> {
-        let json = read_from_task_dir(&format!("solution/{}.json", id))?;
-        Ok(serde_json::from_str(&json)?)
-    }
-}
-
-pub fn visualize(problem_id: u32) -> Result<()> {
-    let problem = Problem::new(problem_id)?;
-    problem.visualize()
-}
-
-pub fn visualize_solution(problem_id: u32) -> Result<()> {
-    let problem = Problem::new(problem_id)?;
-    let solution = Solution::read_existing_solution(1)?;
-
-    let mut traces = Vec::new();
-
-    // Plot hole.
-    let hole_plot = problem.hole.to_plot();
-    traces.push(hole_plot);
-
-    // Plot figure.
-    let edges = problem.figure_to_pose(&problem.figure.vertices);
-    for e in edges {
-        traces.push(e.to_plot());
-    }
-
-    // Plot pose (solution)
-    let edges = problem.figure_to_pose(&solution.vertices);
-    for e in edges {
-        traces.push(e.to_plot());
-    }
-
-    plot::plot(&traces)
-}
+use crate::geo::*;
+use crate::plot::*;
+use crate::submission::*;
 
 struct Move {
     v_index: usize,
@@ -256,7 +10,8 @@ struct Move {
     next_point: Point,
 }
 
-struct Solver {
+pub struct Solver {
+    problem_id: u32,
     problem: Problem,
     vertices: Vec<Point>,
     figure_edge_length: Vec<Distance>,
@@ -270,11 +25,28 @@ impl Solver {
         let figure_edge_length = problem.figure.edge_length();
 
         Ok(Solver {
+            problem_id,
             problem,
             vertices,
             figure_edge_length,
             rng: Box::new(rand::thread_rng()),
         })
+    }
+
+    fn visualize(&self) -> Result<()> {
+        let mut traces = Vec::new();
+
+        // Plot hole.
+        let hole_plot = self.problem.hole.to_plot();
+        traces.push(hole_plot);
+
+        // Plot pose (solution)
+        let edges = self.problem.figure_to_pose(&self.vertices);
+        for e in edges {
+            traces.push(e.to_plot());
+        }
+
+        crate::plot::plot(&traces)
     }
 
     // Spec 3 (b)
@@ -374,17 +146,26 @@ impl Solver {
                 let h1 = self.problem.hole[(j + 1) % self.problem.hole.len()];
 
                 match (p0, p1).intersect(&(h0, h1)) {
-                    IntersectResult::Intersect => {
-                        // count multiple times for every intersections....
-                        count += 1;
-                        // TODO: break here?
-                    }
-                    IntersectResult::PointOnSegment => {
-                        // check middle of edge is inside of polygon
-                        // TODO: pick more random points on (p0, p1)
-                        let middle = (p0.0 + p1.1 / 2, (p0.1 + p1.1) / 2);
-                        if !is_inside(&self.problem.hole, middle) {
-                            count += 1;
+                    // IntersectResult::Intersect => {
+                    //     // count multiple times for every intersections....
+                    //     count += 1;
+                    //     // TODO: break here?
+                    // }
+                    // IntersectResult::PointOnSegment => {
+                    //     // check middle of edge is inside of polygon
+                    //     // TODO: pick more random points on (p0, p1)
+                    //     let middle = (p0.0 + p1.1 / 2, (p0.1 + p1.1) / 2);
+                    //     if !is_inside(&self.problem.hole, middle) {
+                    //         count += 1;
+                    //     }
+                    // }
+                    IntersectResult::Intersect | IntersectResult::PointOnSegment => {
+                        let p01 = P(p1) - P(p0);
+                        for i in 0..10 {
+                            let middle = P(p0) + p01 * i / 10;
+                            if !is_inside(&self.problem.hole, middle.0) {
+                                count += 1;
+                            }
                         }
                     }
                     IntersectResult::None => {}
@@ -424,8 +205,12 @@ impl Solver {
         let v_index = self.rng.gen_range(0..n);
         let p = self.vertices[v_index];
         let next_point = (
-            p.0 + self.rng.gen_range(-5..5),
-            p.1 + self.rng.gen_range(-5..5),
+            // p.0 + self.rng.gen_range(-5..5),
+            // p.1 + self.rng.gen_range(-5..5),
+            p.0 + self.rng.gen_range(-10..10),
+            p.1 + self.rng.gen_range(-10..10),
+            // p.0 + self.rng.gen_range(-100..100),
+            // p.1 + self.rng.gen_range(-100..100),
         );
         Move {
             v_index,
@@ -434,7 +219,7 @@ impl Solver {
         }
     }
 
-    fn solve(&mut self) {
+    fn solve(&mut self) -> Result<SolveResult> {
         // let mut route = (0..n).collect::<Route>();
         let mut iteration = 0;
         // let mut temperature = 100000.0;
@@ -486,315 +271,133 @@ impl Solver {
             iteration += 1;
         }
         println!("score: {}", self.score(&self.vertices));
-    }
 
-    fn visualize(&self) -> Result<()> {
-        let mut traces = Vec::new();
-
-        // Plot hole.
-        let hole_plot = self.problem.hole.to_plot();
-        traces.push(hole_plot);
-
-        // Plot pose (solution)
-        let edges = self.problem.figure_to_pose(&self.vertices);
-        for e in edges {
-            traces.push(e.to_plot());
+        if self.check_constraint() {
+            Ok(SolveResult::Solved {
+                problem_id: self.problem_id,
+                solution: Solution {
+                    vertices: self.vertices.clone(),
+                },
+                dislikes: self.dislike(),
+            })
+        } else {
+            Ok(SolveResult::Unresolved)
         }
-
-        plot::plot(&traces)
     }
 
-    fn write_solution(&self, problem_id: u32) -> Result<()> {
+    fn write_solution(&self) -> Result<()> {
         let solution = Solution {
             vertices: self.vertices.clone(),
         };
         write_to_task_dir(
-            &format!("solution/{}.json", problem_id),
+            &format!("solution/{}-{}.json", self.problem_id, unique_file_name()),
             &serde_json::to_string(&solution)?,
         )
     }
 }
 
-pub fn solve(problem_id: u32) -> Result<()> {
-    let mut solver = Solver::new(problem_id)?;
-    solver.solve();
-
-    println!("constraint?: {}", solver.check_constraint());
-    solver.visualize()?;
-    solver.write_solution(problem_id)?;
-
-    Ok(())
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum SolveResult {
+    Solved {
+        problem_id: u32,
+        solution: Solution,
+        dislikes: u64,
+    },
+    Unresolved,
 }
 
-pub fn solve_all() -> Result<()> {
-    let problems = (1..=78).collect::<Vec<u32>>();
+pub fn solve(problem_id: u32) -> Result<SolveResult> {
+    let mut solver = Solver::new(problem_id)?;
+    if let Ok(s) = read_from_task_dir(&format!("manual/{}.json", problem_id)) {
+        warn!("Using manual input for {}", problem_id);
+        let solution: Solution = serde_json::from_str(&s)?;
+        solver.vertices = solution.vertices;
+    }
 
-    let results = problems
-        .par_iter()
-        .map(|id| {
-            match solve(*id) {
-                Ok(_) => {
-                    if let Ok(s) = crate::api::post_solution(*id) {
-                        println!("result: problem_id: {}, {}", id, s);
+    let res = solver.solve();
+    info!("solveresult: {:?}", res);
+    solver.visualize()?;
+    solver.write_solution()?;
+    res
+}
+
+pub fn solve_with_manual_input(
+    problem_id: u32,
+    solution_path: impl AsRef<Path>,
+) -> Result<SolveResult> {
+    let solution: Solution = serde_json::from_str(&std::fs::read_to_string(solution_path)?)?;
+    let mut solver = Solver::new(problem_id)?;
+    solver.vertices = solution.vertices;
+
+    let res = solver.solve();
+    solver.visualize()?;
+    solver.write_solution()?;
+    res
+}
+
+pub fn solve_and_submit(problem_id: u32) -> Result<bool> {
+    let mut registory = Registry::new()?;
+    match solve(problem_id)? {
+        SolveResult::Solved {
+            problem_id,
+            solution,
+            dislikes,
+        } => {
+            registory.submit_if_best(problem_id, solution, dislikes)?;
+            Ok(true)
+        }
+        SolveResult::Unresolved => {
+            eprintln!("can not solve: problem_id: {}", problem_id);
+            Ok(false)
+        }
+    }
+}
+
+fn start_submission_registry(
+    max_message: u32,
+) -> (
+    std::thread::JoinHandle<()>,
+    std::sync::mpsc::Sender<SolveResult>,
+) {
+    use std::sync::mpsc;
+    use std::thread;
+
+    let (tx, rx) = mpsc::channel();
+
+    let handle = thread::spawn(move || {
+        info!("registry thead is starting...");
+        let mut registory = Registry::new().unwrap();
+        let mut solved = vec![];
+        for _ in 0..max_message {
+            match rx.recv().unwrap() {
+                SolveResult::Solved {
+                    problem_id,
+                    solution,
+                    dislikes,
+                } => {
+                    solved.push(problem_id);
+                    if let Err(e) = registory.submit_if_best(problem_id, solution, dislikes) {
+                        warn!("submission failed?: {:?}", e);
                     }
                 }
-                Err(e) => {
-                    eprintln!("error: problem_id: {}, {:?}", id, e);
-                }
+                SolveResult::Unresolved => {}
             }
-            1
-        })
-        .collect::<Vec<u32>>();
-    println!("results: {:?}", results);
+        }
+        println!("solved: {:?}", solved);
+    });
+    (handle, tx)
+}
+
+pub fn solve_all(range: Range<u32>) -> Result<()> {
+    let (handle, tx) = start_submission_registry(range.end - range.start);
+    let problems = range.map(|id| (id, tx.clone())).collect::<Vec<(u32, _)>>();
+    problems.into_par_iter().for_each(|(id, tx)| {
+        if let Ok(solve_result) = solve(id) {
+            tx.send(solve_result).unwrap();
+        }
+    });
+    handle.join().unwrap();
     Ok(())
-}
-
-// Geometry
-
-// https://www.geeksforgeeks.org/check-if-two-given-line-segments-intersect/
-type Segment = (Point, Point);
-
-enum IntersectResult {
-    PointOnSegment,
-    Intersect,
-    None,
-}
-
-trait Intersect {
-    fn intersect(&self, other: &Self) -> IntersectResult;
-}
-
-// Given three colinear points p, q, r, the function checks if
-// point q lies on line segment 'pr'
-fn on_segment(p: Point, q: Point, r: Point) -> bool {
-    q.0 <= p.0.max(r.0) && q.0 >= p.0.min(r.0) && q.1 <= p.1.max(r.1) && q.1 >= p.1.min(r.1)
-}
-
-fn orientation(p: Point, q: Point, r: Point) -> u32 {
-    // See https://www.geeksforgeeks.org/orientation-3-ordered-points/
-    // for details of below formula.
-    let val = (q.1 - p.1) * (r.0 - q.0) - (q.0 - p.0) * (r.1 - q.1);
-
-    if val == 0 {
-        return 0; // colinear
-    }
-
-    // clock or counterclock wise
-    if val > 0 {
-        1
-    } else {
-        2
-    }
-}
-
-// / The main function that returns true if line segment 'p1q1'
-// // and 'p2q2' intersect.
-// bool doIntersect(Point p1, Point q1, Point p2, Point q2)
-impl Intersect for Segment {
-    fn intersect(&self, other: &Segment) -> IntersectResult {
-        let p1 = self.0;
-        let q1 = self.1;
-
-        let p2 = other.0;
-        let q2 = other.1;
-        // Find the four orientations needed for general and
-        // special cases
-        let o1 = orientation(p1, q1, p2);
-        let o2 = orientation(p1, q1, q2);
-        let o3 = orientation(p2, q2, p1);
-        let o4 = orientation(p2, q2, q1);
-
-        // println!("{} != {}, {} != {}", o1, o2, o3, o4);
-
-        let on_boundary = || {
-            // Special Cases
-            // p1, q1 and p2 are colinear and p2 lies on segment p1q1
-            if o1 == 0 && on_segment(p1, p2, q1) {
-                return true;
-            }
-
-            // p1, q1 and q2 are colinear and q2 lies on segment p1q1
-            if o2 == 0 && on_segment(p1, q2, q1) {
-                return true;
-            }
-
-            // p2, q2 and p1 are colinear and p1 lies on segment p2q2
-            if o3 == 0 && on_segment(p2, p1, q2) {
-                return true;
-            }
-
-            // p2, q2 and q1 are colinear and q1 lies on segment p2q2
-            if o4 == 0 && on_segment(p2, q1, q2) {
-                return true;
-            }
-
-            false
-        };
-
-        // General case
-        if o1 != o2 && o3 != o4 {
-            if on_boundary() {
-                return IntersectResult::PointOnSegment;
-            }
-            return IntersectResult::Intersect;
-        }
-        if on_boundary() {
-            return IntersectResult::PointOnSegment;
-        }
-        return IntersectResult::None; // Doesn't fall in any of the above cases
-    }
-}
-
-// https://www.geeksforgeeks.org/how-to-check-if-a-given-point-lies-inside-a-polygon/
-// Returns true if the point p lies inside the polygon[] with n vertices
-fn is_inside(polygon: &[Point], p: Point) -> bool {
-    // There must be at least 3 vertices in polygon[]
-    assert!(polygon.len() >= 3);
-
-    // Create a point for line segment from p to infinite
-    let extreme = ((i32::MAX / 10) as i64, p.1);
-
-    // Count intersections of the above line with sides of polygon
-    let mut count = 0;
-    for i in 0..polygon.len() {
-        let next = (i + 1) % polygon.len();
-
-        // Check if the line segment from 'p' to 'extreme' intersects
-        // with the line segment from 'polygon[i]' to 'polygon[next]'
-        // if (doIntersect(polygon[i], polygon[next], p, extreme))
-        match (polygon[i], polygon[next]).intersect(&(p, extreme)) {
-            // IntersectResult::Intersect => {
-            //     count += 1;
-            // }
-            IntersectResult::Intersect | IntersectResult::PointOnSegment => {
-                count += 1;
-                // If the point 'p' is colinear with line segment 'i-next',
-                // then check if it lies on segment. If it lies, return true,
-                // otherwise false
-                if orientation(polygon[i], p, polygon[next]) == 0 {
-                    // debug!(
-                    //     "p is on_segment: {:?} on {:?}",
-                    //     p,
-                    //     (polygon[i], polygon[next])
-                    // );
-                    return on_segment(polygon[i], p, polygon[next]);
-                }
-            }
-            IntersectResult::None => {}
-        }
-    }
-
-    // Return true if count is odd, false otherwise
-    // if count % 2 == 0 {
-    //     debug!("p is outside of polygon: {:?}, count: {}", p, count);
-    // }
-    count % 2 == 1
-}
-
-#[derive(Debug, PartialEq, PartialOrd, Clone, Copy, Default)]
-struct P(Point);
-
-impl P {
-    fn x(&self) -> i64 {
-        self.0 .0
-    }
-    fn y(&self) -> i64 {
-        self.0 .1
-    }
-
-    fn dot(&self, rhs: &P) -> i64 {
-        self.x() * rhs.x() + self.y() * rhs.y()
-    }
-}
-
-impl Deref for P {
-    type Target = Point;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::ops::Add for P {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        P((self.x() + rhs.x(), self.y() + rhs.y()))
-    }
-}
-
-impl std::ops::Sub for P {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        P((self.x() - rhs.x(), self.y() - rhs.y()))
-    }
-}
-
-trait DistanceToSegment {
-    fn distance_to_segment(&self, segment: &Segment) -> f64;
-}
-
-impl DistanceToSegment for Point {
-    // https://www.geeksforgeeks.org/minimum-distance-from-a-point-to-the-line-segment-using-vectors/
-    fn distance_to_segment(&self, segment: &Segment) -> f64 {
-        // // Function to return the minimum distance
-        // // between a line segment AB and a point E
-        // double minDistance(Point A, Point B, Point E)
-        // {
-
-        let e = P(*self);
-        let a = P(segment.0);
-        let b = P(segment.1);
-
-        let ab = b - a;
-        let be = e - b;
-        let ae = e - a;
-
-        // Variables to store dot product
-        // double AB_BE, AB_AE;
-
-        // // Calculating the dot product
-        // AB_BE = (AB.F * BE.F + AB.S * BE.S);
-        //     AB_AE = (AB.F * AE.F + AB.S * AE.S);
-
-        let ab_be = ab.dot(&be);
-        let ab_ae = ab.dot(&ae);
-
-        // Minimum distance from
-        // point E to the line segment
-
-        if ab_be > 0 {
-            // Case 1
-            // Finding the magnitude
-            // double y = E.S - B.S;
-            // double x = E.F - B.F;
-            // reqAns = sqrt(x * x + y * y);
-            (e.squared_distance(&b) as f64).sqrt()
-        } else if ab_ae < 0 {
-            // Case 2
-            // double y = E.S - A.S;
-            // double x = E.F - A.F;
-            // reqAns = sqrt(x * x + y * y);
-            (e.squared_distance(&a) as f64).sqrt()
-        } else {
-            // Case 3
-            // Finding the perpendicular distance
-            // double x1 = AB.F;
-            // double y1 = AB.S;
-            // double x2 = AE.F;
-            // double y2 = AE.S;
-            // double mod = sqrt(x1 * x1 + y1 * y1);
-            // reqAns = abs(x1 * y2 - y1 * x2) / mod;
-
-            let x1 = ab.x();
-            let y1 = ab.y();
-            let x2 = ae.x();
-            let y2 = ae.y();
-            let m = ((x1 * x1 + y1 * y1) as f64).sqrt();
-            (x1 * y2 - y1 * x2).abs() as f64 / m
-        }
-    }
 }
 
 #[cfg(test)]

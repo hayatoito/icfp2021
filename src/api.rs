@@ -68,7 +68,16 @@ struct PoseIdResponse {
     id: String,
 }
 
-pub fn post_solution(problem_id: u32) -> Result<String> {
+pub fn post_solution(problem_id: u32, solution: String) -> Result<String> {
+    let pose_id_response = post(&format!("/api/problems/{}/solutions", problem_id), solution)?;
+    info!("pose_id_response: {}", pose_id_response);
+
+    let PoseIdResponse { id: pose_id } = serde_json::from_str(&pose_id_response)?;
+    Ok(pose_id)
+    // ppretrieve_pose_info(problem_id, pose_id)
+}
+
+pub fn post_solution_existing(problem_id: u32) -> Result<String> {
     let pose_id_response = post(
         &format!("/api/problems/{}/solutions", problem_id),
         read_solution(problem_id)?,
@@ -86,7 +95,7 @@ pub fn retrieve_pose_info(problem_id: u32, pose_id: String) -> Result<String> {
         problem_id, pose_id
     ))?;
     write_to_task_dir(
-        &format!("pose-info/problem-{}_pose-{}.json", problem_id, pose_id),
+        &format!("judge/{}_{}.json", problem_id, pose_id),
         &pose_info,
     )?;
     Ok(pose_info)
