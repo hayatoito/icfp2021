@@ -34,7 +34,9 @@ download_problem() {
   mkdir -p ./task/problem
   # cargo run -- download-problem 1 78
   # [2021-07-10 Sat]
-  cargo run -- download-problem 1 106
+  # cargo run -- download-problem 1 106
+  # [2021-07-12 Mon]
+  cargo run -- download-problem 1 132
 }
 
 post_solution() {
@@ -62,7 +64,7 @@ visualize_solution() {
 }
 
 solve() {
-  RUST_LOG=debug cargo run --release -- solve $1
+  RUST_LOG=icfp2021=debug cargo run --release -- solve $1
 }
 
 # solve_with_manual_input() {
@@ -73,8 +75,16 @@ solve_and_submit() {
   RUST_LOG=icfp2021=debug cargo run --release -- solve-and-submit $1
 }
 
+do_not_solve_and_submit() {
+  RUST_LOG=icfp2021=debug cargo run --release -- do-not-solve-and-submit $1
+}
+
 solve_all() {
-  RUST_LOG=info cargo run --release -- solve-all $1 $2
+  RUST_LOG=icfp2021=info cargo run --release -- solve-all $1 $2
+}
+
+update_pending() {
+  RUST_LOG=icfp2021=info cargo run --release -- update-pending
 }
 
 # interact() {

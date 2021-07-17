@@ -1,7 +1,7 @@
 mod prelude;
 
 pub mod api;
-pub mod geo;
+// pub mod geo;
 pub mod plot;
 pub mod solver;
 pub mod submission;

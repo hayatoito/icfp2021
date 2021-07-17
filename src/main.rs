@@ -37,6 +37,8 @@ enum Cmd {
     // },
     #[structopt(name = "solve-and-submit")]
     SolveAndSubmit { problem_id: u32 },
+    #[structopt(name = "do-not-solve-and-submit")]
+    DoNotSolveAndSubmit { problem_id: u32 },
     #[structopt(name = "solve-all")]
     SolveAll { start: u32, end: u32 },
 }
@@ -85,6 +87,9 @@ fn main() -> Result<()> {
         // }
         Cmd::SolveAndSubmit { problem_id } => {
             icfp2021::solver::solve_and_submit(problem_id)?;
+        }
+        Cmd::DoNotSolveAndSubmit { problem_id } => {
+            icfp2021::solver::do_not_solve_and_submit(problem_id)?;
         }
         Cmd::SolveAll { start, end } => {
             icfp2021::solver::solve_all(start..end)?;

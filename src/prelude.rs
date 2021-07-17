@@ -1,6 +1,7 @@
 // pub use lazy_static::*;
 pub use anyhow::{bail, ensure, Context, Result};
 pub use chrono::prelude::*;
+pub use geo::algorithm::contains::Contains;
 pub use log::*;
 pub use rand::Rng;
 pub use rand::RngCore;
@@ -32,70 +33,30 @@ pub fn unique_file_name() -> String {
     local.format("%Y-%m-%d-%H%M%S-%f").to_string()
 }
 
-// 2021
+// for icfp 2021
 pub type Score = u64;
 pub type Distance = u64;
 
-pub type Cord = i64;
-pub type Point = (Cord, Cord);
+pub type Coord = i64;
 
-#[derive(Debug, PartialEq, PartialOrd, Clone, Copy, Default)]
-pub struct P(pub Point);
+pub type Point = (Coord, Coord);
 
-impl P {
-    pub fn x(&self) -> i64 {
-        self.0 .0
-    }
-    pub fn y(&self) -> i64 {
-        self.0 .1
-    }
+pub type P = geo::Coordinate<Coord>;
 
-    pub fn dot(&self, rhs: &P) -> i64 {
-        self.x() * rhs.x() + self.y() * rhs.y()
+pub trait ToFloatCoordinate {
+    fn to_float_coordinate(&self) -> geo::Coordinate<f64>;
+}
+
+impl ToFloatCoordinate for P {
+    fn to_float_coordinate(&self) -> geo::Coordinate<f64> {
+        geo::Coordinate {
+            x: self.x as f64,
+            y: self.y as f64,
+        }
     }
 }
 
-impl Deref for P {
-    type Target = Point;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::ops::Add for P {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        P((self.x() + rhs.x(), self.y() + rhs.y()))
-    }
-}
-
-impl std::ops::Mul<Cord> for P {
-    type Output = Self;
-
-    fn mul(self, rhs: Cord) -> Self::Output {
-        P((self.x() * rhs, self.y() * rhs))
-    }
-}
-
-impl std::ops::Div<Cord> for P {
-    type Output = Self;
-
-    fn div(self, rhs: Cord) -> Self::Output {
-        P((self.x() / rhs, self.y() / rhs))
-    }
-}
-
-impl std::ops::Sub for P {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        P((self.x() - rhs.x(), self.y() - rhs.y()))
-    }
-}
-
-pub type Segment = (Point, Point);
+// Use distance_2
 
 pub trait SquaredDistance {
     fn squared_distance(&self, other: &Self) -> Distance;
@@ -105,6 +66,12 @@ impl SquaredDistance for Point {
     fn squared_distance(&self, other: &Self) -> Distance {
         // TODO: might not fit in u64.
         ((self.0 - other.0).pow(2) + (self.1 - other.1).pow(2)) as u64
+    }
+}
+
+impl SquaredDistance for P {
+    fn squared_distance(&self, other: &Self) -> Distance {
+        ((self.x - other.x).pow(2) + (self.y - other.y).pow(2)) as u64
     }
 }
 
@@ -125,19 +92,6 @@ pub struct Figure {
     pub vertices: Vec<Point>,
 }
 
-impl Figure {
-    pub fn edge_length(&self) -> Vec<Distance> {
-        self.edges
-            .iter()
-            .map(|e| {
-                let p0 = self.vertices[e.0];
-                let p1 = self.vertices[e.1];
-                p0.squared_distance(&p1)
-            })
-            .collect()
-    }
-}
-
 impl Problem {
     pub fn new(id: u32) -> Result<Problem> {
         let json = read_from_task_dir(&format!("problem/{}.json", id))?;
@@ -155,54 +109,9 @@ impl Problem {
         }
         edges
     }
-
-    fn min_squared_distance(point_in_hole: Point, pose: &Pose) -> Distance {
-        assert!(!pose.is_empty());
-        pose.iter()
-            .map(|p| p.squared_distance(&point_in_hole))
-            .min()
-            .unwrap()
-    }
-
-    pub fn dislike(&self, pose: &Pose) -> Score {
-        self.hole
-            .iter()
-            .map(|p| Self::min_squared_distance(*p, pose))
-            .sum()
-    }
-
-    /*
-    fn pose_example(&self) -> Pose {
-        vec![
-            (21, 28),
-            (31, 28),
-            (31, 87),
-            (29, 41),
-            (44, 43),
-            (58, 70),
-            (38, 79),
-            (32, 31),
-            (36, 50),
-            (39, 40),
-            (66, 77),
-            (42, 29),
-            (46, 49),
-            (49, 38),
-            (39, 57),
-            (69, 66),
-            (41, 70),
-            (39, 60),
-            (42, 25),
-            (40, 35),
-        ]
-    }
-    */
 }
 
-pub type Pose = Vec<Point>;
-
 /// Solution
-// [[file:~/share/rust/icfp2021/task/solution/1.json::{]]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Solution {
     pub vertices: Vec<Point>,
